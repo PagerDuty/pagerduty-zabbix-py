@@ -17,6 +17,8 @@ def test():
     """
     arguments = ["", "f3e8b8c00f9f0130008722000af85fb5", "trigger", body]
     pagerduty_queue.enqueue(pagerduty.Zabbix(arguments).event())
+    pagerduty_queue.enqueue(pagerduty.Zabbix(arguments).event())
+    pagerduty_queue.enqueue(pagerduty.Zabbix(arguments).event())
     time.sleep(5)
     pagerduty_queue.lock_and_flush_queue()
 

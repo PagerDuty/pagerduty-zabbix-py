@@ -68,6 +68,7 @@ logger = SimpleLogger()
 
 class PagerDutyClient(object):
     """
+    A simple client that can submit events (a file based event) to PagerDuty.
     """
 
     EVENTS_API_BASE = "https://events.pagerduty.com/generic/2010-04-15/create_event.json"
@@ -81,7 +82,7 @@ class PagerDutyClient(object):
             json_event = event_file.read()
 
         incident_key = None
-        delete_file = True
+        retry = False
 
         try:
             request = urllib2.Request(self.api_base)
@@ -101,12 +102,9 @@ class PagerDutyClient(object):
                 logger.warn("PagerDuty server REJECTED the event in file: %s, Reason: %s" % (file_path, e.read()))
             else:
                 logger.warn("DEFERRED PagerDuty event in file: %s, Reason: [%s, %s]" % (file_path, e.code, e.reason))
-                delete_file = False # We'll need to retry
+                retry = True # We'll need to retry
 
-        if delete_file:
-            os.remove(file_path)
-
-        return incident_key
+        return (retry, incident_key)
 
 
 class PagerDutyQueue(object):
@@ -138,17 +136,24 @@ class PagerDutyQueue(object):
         pd_names = re.compile("pd_")
         pd_file_names = filter(pd_names.match, files)
 
-        def file_sorter(file_name):
+        # We need to sort the files by the timestamp.
+        # This function extracts the timestamp out of the file name
+        def file_timestamp(file_name):
             return int(re.search('pd_(\d+)_', file_name).group(1))
 
-        sorted_file_names = sorted(pd_file_names, file_sorter)
+        sorted_file_names = sorted(pd_file_names, key=file_timestamp)
         return pd_file_names
 
     def _flush_queue(self):
         file_names = self._queued_files()
         for file_name in file_names:
-            incident_key = self.pagerduy_client.submit_event(("%s/%s" % (self.queue_dir, file_name)))
-            if incident_key is not None:
+            file_path = ("%s/%s" % (self.queue_dir, file_name))
+            retry, incident_key = self.pagerduy_client.submit_event(file_path)
+
+            if not retry:
+                os.remove(file_path)
+
+            if incident_key:
                 logger.info("PagerDuty event submitted with incident key: %s" % incident_key)
 
     def lock_and_flush_queue(self):
